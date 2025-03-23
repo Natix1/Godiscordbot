@@ -83,10 +83,55 @@ func sendMessage(channelId string, content string) error {
 }
 
 func connect() (*websocket.Conn, error) {
-	conn, _, err := websocket.DefaultDialer.Dial(gatewayURL, nil)
+	conn, _, err := websocket.DefaultDialer.Dial(gatewayURL+gatewayParams, nil)
 	if err != nil {
 		return nil, err
 	}
+
+	var helloEvent HelloEvent
+	err = conn.ReadJSON(&helloEvent)
+
+	if helloEvent.Opcode != 10 {
+		log.Fatalf("Invalid discord response opcode; Expected 10; Got %d\n", helloEvent.Opcode)
+	} else {
+		log.Printf("Got opcode 10 (Hello) from discord\n")
+	}
+
+	go heartbeatRunner(conn, time.Duration(helloEvent.Data.HeartbeatIntervalMs)*time.Millisecond)
+
+	return conn, nil
+}
+
+func resume(url string, sid string, seq int) (*websocket.Conn, error) {
+	conn, _, err := websocket.DefaultDialer.Dial(url+gatewayParams, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var helloEvent HelloEvent
+	err = conn.ReadJSON(&helloEvent)
+
+	if helloEvent.Opcode != 10 {
+		log.Fatalf("Invalid discord response opcode; Expected 10; Got %d\n", helloEvent.Opcode)
+	} else {
+		log.Printf("Got opcode 10 (Hello) from discord\n")
+	}
+
+	data := ResumeEvent{
+		Opcode: 6,
+		Data: struct {
+			Token          string "json:\"token\""
+			Sessionid      string "json:\"session_id\""
+			SequenceNumber int    "json:\"seq\""
+		}{
+			Token:          Bot.Token,
+			Sessionid:      sid,
+			SequenceNumber: seq,
+		},
+	}
+
+	conn.WriteJSON(data)
+	go heartbeatRunner(conn, time.Duration(helloEvent.Data.HeartbeatIntervalMs)*time.Millisecond)
 
 	return conn, nil
 }

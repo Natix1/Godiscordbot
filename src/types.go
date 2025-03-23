@@ -53,6 +53,16 @@ type ReadyEvent struct {
 	} `json:"d"`
 }
 
+// op: 6 (https://discord.com/developers/docs/events/gateway-events#resume)
+type ResumeEvent struct {
+	Opcode int `json:"op"`
+	Data   struct {
+		Token          string `json:"token"`
+		Sessionid      string `json:"session_id"`
+		SequenceNumber int    `json:"seq"`
+	} `json:"d"`
+}
+
 // Classes for discord events
 
 type User struct {

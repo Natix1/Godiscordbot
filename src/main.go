@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"time"
 
 	"github.com/joho/godotenv"
 )
 
 const (
-	gatewayURL    = "wss://gateway.discord.gg/?v=10&encoding=json"
+	gatewayURL    = "wss://gateway.discord.gg/"
+	gatewayParams = "?v=10&encoding=json"
 	intentsNumber = 33280
 	botPrefix     = "!"
 )
@@ -18,8 +18,6 @@ const (
 var (
 	Authenticated  bool = false
 	SequenceNumber int
-	SessionId      string
-	ResumeURL      string
 	Bot            DiscordBot
 )
 
@@ -40,27 +38,15 @@ func init() {
 }
 
 func main() {
+	var resumeUrl string
+	var sessionId string
+
 	conn, err := connect()
 	if err != nil {
 		log.Fatal("Dial failed:", err)
 	}
 
 	defer conn.Close()
-
-	var helloEvent HelloEvent
-	err = conn.ReadJSON(&helloEvent)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if helloEvent.Opcode != 10 {
-		log.Fatalln("Invalid discord response opcode; \nExpected 10;\nGot", helloEvent.Opcode)
-	} else {
-		log.Printf("Got opcode 10 (Hello) from discord\n")
-	}
-
-	go heartbeatRunner(conn, time.Duration(helloEvent.Data.HeartbeatIntervalMs)*time.Millisecond)
 
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -81,6 +67,26 @@ func main() {
 
 		case 11: // Heartbeat ACK
 			log.Printf("Heartbeat acknowledged\n")
+
+		case 6: // Reconnect
+			log.Printf("Got recconection request from discord")
+			conn.Close()
+			conn, err = resume(resumeUrl, sessionId, SequenceNumber)
+			if err != nil {
+				log.Fatal(err)
+			}
+			continue
+
+		case 9: // Invalid session
+			log.Printf("Got invalid session reply, reauthenticating")
+			conn.Close()
+			conn, err = connect()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			Authenticated = false
+			continue
 
 		case 0: // Event
 			var event Event
@@ -104,6 +110,9 @@ func main() {
 				log.Printf("Gateway ready, authenticated as %s with user ID being %s\n", readyEvent.Data.User.Username, readyEvent.Data.User.Id)
 				Bot.User = readyEvent.Data.User
 				Authenticated = true
+
+				resumeUrl = readyEvent.Data.ResumeGatewayURL
+				sessionId = readyEvent.Data.SessionId
 
 			case "MESSAGE_CREATE":
 				var message MessageEvent
